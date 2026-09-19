@@ -1,0 +1,6 @@
+Llama 3.2 is licensed under the Llama 3.2 Community License,
+Copyright (c) Meta Platforms, Inc. All Rights Reserved.
+
+The complete license and acceptable-use policy accompanying the local Ollama
+artifact are preserved as LICENSE-LLAMA-3.2.txt and
+ACCEPTABLE-USE-POLICY.txt in this directory.

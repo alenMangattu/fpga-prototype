@@ -1,0 +1,22 @@
+{
+  "DESIGN_NAME": "tiny_transformer_int4_asic_top",
+  "VERILOG_FILES": [
+    "dir::../tiny_transformer_int4_asic_top.sv",
+    "dir::../../rtl/int4_linear.sv",
+    "dir::../../rtl/int8_dot_bank.sv",
+    "dir::../../rtl/tiny_transformer_int4.sv"
+  ],
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 20.0,
+  "PNR_SDC_FILE": "dir::constraints_int4.sdc",
+  "SIGNOFF_SDC_FILE": "dir::constraints_int4.sdc",
+  "PDN_MULTILAYER": true,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": "0 0 1000 1000",
+  "CORE_AREA": "20 20 980 980",
+  "FP_CORE_UTIL": 30,
+  "PL_TARGET_DENSITY_PCT": 40,
+  "SYNTH_STRATEGY": "AREA 0",
+  "SYNTH_SHARE_RESOURCES": false,
+  "DRT_THREADS": 4
+}

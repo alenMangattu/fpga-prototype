@@ -1,0 +1,29 @@
+{
+  "DESIGN_NAME": "tiny_transformer_asic_top",
+  "VERILOG_FILES": [
+    "dir::../tiny_transformer_asic_top.sv",
+    "dir::../../rtl/fp32_mul.sv",
+    "dir::../../rtl/fp32_add.sv",
+    "dir::../../rtl/fp32_relu.sv",
+    "dir::../../rtl/mac.sv",
+    "dir::../../rtl/fp32_linear.sv",
+    "dir::../../rtl/tiny_transformer.sv"
+  ],
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 100.0,
+  "PNR_SDC_FILE": "dir::constraints.sdc",
+  "SIGNOFF_SDC_FILE": "dir::constraints.sdc",
+  "PDN_MULTILAYER": true,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": "0 0 3000 3000",
+  "CORE_AREA": "20 20 2980 2980",
+  "FP_CORE_UTIL": 30,
+  "PL_TARGET_DENSITY_PCT": 35,
+  "SYNTH_STRATEGY": "AREA 0",
+  "SYNTH_SHARE_RESOURCES": false,
+  "SYNTH_ABC_BUFFERING": false,
+  "RUN_POST_GPL_DESIGN_REPAIR": false,
+  "RUN_POST_CTS_RESIZER_TIMING": false,
+  "RUN_ANTENNA_REPAIR": false,
+  "DRT_THREADS": 1
+}

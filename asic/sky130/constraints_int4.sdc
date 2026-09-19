@@ -1,0 +1,5 @@
+create_clock -name core_clk -period 20.0 [get_ports clk]
+set_clock_uncertainty 0.5 [get_clocks core_clk]
+set_input_delay 2.0 -clock core_clk [get_ports {reset_n start cfg_we cfg_addr* cfg_wdata*}]
+set_output_delay 2.0 -clock core_clk [all_outputs]
+set_false_path -from [get_ports reset_n]
