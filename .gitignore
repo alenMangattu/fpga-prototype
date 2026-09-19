@@ -1,1 +1,15 @@
 .venv/
+models/
+
+# Build and simulation outputs
+build/
+**/build/
+**/runs/
+obj_dir/
+**/obj_dir/
+results/
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
