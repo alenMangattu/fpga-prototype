@@ -1,0 +1,815 @@
+
+--- PDF page 1 ---
+ENGINEERING HANDBOOK
+From Transformer RTL
+to an Inference Product
+Apracticalimplementation roadmapforrealmodels,
+reusable hardware,and manufacturedsilicon
+Starting point
+Thelocalverilog projectcontainsafrozen-weightQ8tile,aCPUreference,andasmallRTLdecoder
+prototype. Thishandbookidentifieswhatismissing,whattoimplement,whattopurchaseorobtain,
+andwhatevidence isrequired before claiming a working product.
+Theexecutionrequirement
+Alltransformerforward-passtensorsmustbecomputedbytheaccelerator. Hostsoftwaremaypreparemodels,
+tokenizetext,managerequests,andindependentlyverifyoutputs. ACPUnumericalresultmustnotsilently
+substitute formissinghardwareinference.
+Version 1.0 21 September 2026
+Repository: /Users/computer/dev/verilog
+Scope: inference only;fixed-modeland programmableASIC choices; large-model scaling.
+Status: planningdocument, notatapeout package or a fabrication quotation.
+--- PDF page 2 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+How to use this handbook
+Start with Sections 1–3. They define the actual starting point and prevent the project from expanding into an
+undefinedpromisetoruneverypossiblemodel. ThenworkthroughtheimplementationgatesinSection20.
+Thechecklistsdescribework packages,notfeatures that alreadyexist.
+Recommended direction for your stated goal: use reloadable weights, a programmable execution
+schedule, and a declared operator set. Develop the correctness and memory interfaces first. Treat a
+permanently fused model as a separate specialization after the model and its commercial lifetime are
+known.
+Read the status labels literally
+Label Whatit establishes
+Implemented proto-
+Sourceexistsandsomebehavior is exercised; correctness or scalemay remain
+type
+unqualified.
+Verifiedcomponent Defined tests or proofs passfor a stated configuration andnumerical contract.
+Mappedhardware Arithmeticandmemories havebeenimplemented using actualtargetresources.
+Physicalsign-off Required geometry, connectivity,timingand electrical checks pass for thetargetflow.
+Productqualified Packagedhardware,software, manufacturingtest and required qualificationhave
+passed.
+Three rules for reading the estimates
+1. Capacity and bandwidth examples are calculations with stated assumptions; they are not measured
+performance predictions.
+2. AnarbitraryVerilogarraydoesnotestablishafeasiblephysicalmemory. Itsports,accesslatency,banking
+andelectrical behaviormustmatch areal implementation.
+3. No finite chip supports arbitrary future architectures. Publish supported operators, numerical formats,
+shapes and capacitylimits,thenrejectunsupported models.
+Scope and evidence
+The repository observations refer to the files present on 21 September 2026. Previously recorded experiments
+are identified as such; this document does not claim a new full-model inference or physical-design run.
+External references are collected at the end. Foundry, supplier, licensing and regulatory details must be
+confirmedfor theproductactuallyselected.
+Project snapshot and implementation plan 2 / 27
+--- PDF page 3 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+Contents
+1 Currentproject: whatworksandwhatis stillunproven 4
+2 Choosetheproductand the model-update strategy 5
+3 Define the executionandnumerical contract 6
+4 Repairand qualify the current arithmetic andprotocols 7
+5 Build the model importer andcompiler 8
+6 Implement reusable matrixandvectorengines 9
+7 Completethetransformergraphandattention 10
+8 Engineerweightmemory, scratchpadsand data movement 11
+9 Size modelstorage, KVcapacityandbandwidth 12
+10 ManageKV state,requestsandlongcontexts 13
+11 Makeexecutionprogrammable and observable 14
+12 Support differentfamiliesandverylargemodels 15
+13 Build independentverificationandrelease evidence 16
+14 Modelperformanceandvalidate onahardwareprototype 17
+15 Integrate the chipplatform andobtaintechnologyIP 18
+16 Close physical design and prepareatapeout package 19
+17 Designproduction test and siliconreliability 20
+18 Build the package,board,cooling andservice software 21
+19 Resolvecommercial, licensingand compliance work 22
+20 Execute the projectin evidence-basedstages 23
+21 Maintain a release checklistandrisk register 24
+22 Repository map andcommands 25
+23 Glossary 26
+References and sourceboundaries 27
+Project snapshot and implementation plan 3 / 27
+--- PDF page 4 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+1 Current project: what works and what is still unproven
+Asset Actualscope
+Frozenmodelimage LocalLlama3.21B Instruct Q8_0/F32tensor package: 1,313,251,456 bytes
+including alignment. It is a data image, notacompletechip.
+Fixed-weightQ8 tile Defaultco-simulation selectseight rows ofthe firstqueryprojection. The
+physicalexperiment usesone row. Neither executesawhole attentionlayer.
+CPU reference Completereference execution;the hybridpathreplacesselectedCPUoutputs
+withsimulated tile outputs. It is not standaloneacceleratorinference.
+Newdecoder RTL SerialQ16.16prototype containingthe Llama-stylegraph, mutableparameter
+arrays, KVstate, tied outputprojection and greedy argmax.
+Decoderregression Twolayers, hidden width four,twoheads,fourvocabularyentriesandtwo
+cached positions;syntheticweightsand identity RoPE.
+Decodersynthesis target Genericlowering and structuralchecks; memoriesandarithmetic operators
+remain. No target-library timing or completed full gate mapping is established.
+SKY130 experiment A separateone-row tile reachedplacement/clock/global-route stages; no clean
+finalrouted implementationof the fulldecoder.
+Do not carry these assumptions into a product plan
+• A test that returns two expected token IDs does not verify every projection, normalization, probability,
+activation, or finallogit.
+• Increasingelaborationparametersdoesnotprovememorycapacity,routing,clockfrequencyorruntime
+model compatibility.
+• Structural synthesis is not equivalent to a clean standard-cell netlist, physical sign-off, or a working
+fabricated chip.
+• The older hardmax/ReLU tiny transformer and simulation-only GPT reference are different designs; their
+capabilitiesdonotautomatically belongtothe newdecoder.
+Deliverable: Abaselineevidenceregisteridentifyingsourcerevision,modelhash,toolversions,tests
+andreportsforeach claim.
+Completion evidence: Everystatusclaimlinksto areproducible artifactandlistsits configurationand
+limits.
+Project snapshot and implementation plan 4 / 27
+--- PDF page 5 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+2 Choose the product and the model-update strategy
+Architecture Strength Constraint
+Fixed-model ASIC Specializesweight storage and
+computationfor achosen checkpoint.
+Programmable
+ASIC
+Loads newweights and schedules
+supportedoperators onthesame device.
+Hybrid Combinesfixedregionswith
+programmableengines orwritable
+overlays.
+New base weights generally require
+different manufacturedROM/silicon;
+adaptersonly helpifsupported.
+Pays for writable memory, addressing,
+controland generality.
+Onlythe deliberatelyimplemented update
+pathisavailable.
+Taalas publicly describes specialization for individual models and integration of storage with computation [1].
+Its exact implementation is not a public specification for this project. Do not assume that an ordinary
+synthesizedROMreproduces itsphysical density or performance.
+Write a product requirements document
+□ Selecta card, embeddedmodule,appliance, or hosted service as thefirst deliverable.
+□ Identify initialcheckpointsandsupportedarchitecture variants, includingrights to usetheir weights.
+□ Setmaximumparameters, layers,hidden/FFN widths, head counts, vocabulary and context.
+□ Setbatch/concurrency limits,prompt/output length distributions and quality targets.
+□ Set time-to-first-token, inter-token latency and throughput targets, including p95/p99 behavior where
+relevant.
+□ Set board power, thermal envelope, dimensions, environmental conditions and host-interface requirements.
+□ Setunit-costtarget,volumeassumptions,supportlifetime and model-update policy.
+□ Name the reference systemsandworkloadsused to decidewhether theproduct is competitive.
+Training and optimizer hardware are outside the initial scope. Loading weights trained elsewhere is sufficient
+forinference. Supportingadaptersorfine-tuning doesnot requireputtingtraining on this accelerator.
+Deliverable: Productrequirements,a supported-model matrixandanarchitecture decisionrecord.
+Completionevidence: Thefirstreleasehasmeasurablelimits;modelupdatesandunsupportedoperators
+haveexplicitbehavior.
+Project snapshot and implementation plan 5 / 27
+--- PDF page 6 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+3 Define the execution and numerical contract
+Thehardwareandcompilermustagreeonexacttensorlayouts,dataformats,operationsemanticsanderror
+behavior. Amodelname oran“INT8” label is not enough to establishcompatibility.
+□ Define weight, activation, accumulator and KV formats separately: signedness, scale/exponent representa-
+tion, groupsize,packing, endianness and alignment.
+□ Define scale/zero-pointinterpretation and support for mixed-precisiontensors.
+□ Specifyreductionorder,intermediatewidths,rounding,saturation,overflowandunderflow;includeFP
+special valueswhereverFP arithmeticissupported.
+□ Define supportedshapes,tailmasks, strides,transposes, broadcast rules and address widths.
+□ Specify nonlinearapproximationdomains, maximumerror andout-of-domain behavior.
+□ Setnormalization/Softmaxprecision independentlyof low-bit matrix weights.
+□ Define legal commandsequences, reset/cancel behavior, modellifetimeand cachevalidity.
+□ State which outputs the accelerator returns: logits, selected tokens, diagnostic tensors, or a supported
+combination.
+Separate four meanings of “exact”
+Property Evidenceneeded
+Graphequivalence Same mathematical operators, dimensions, masks, positions and dependencies as the
+Arithmetic equiva-
+lence
+checkpoint.
+oracle.
+Samespecifiedfinite-precision operations and rounding asthechosenhardware
+Checkpointquality Measurednumerical andtask-qualityimpactof quantizationandapproximation.
+Product reliability Correct execution under supported workloads, stalls, resets and operating conditions.
+Alower-precisionimplementationcanpreservethegraphwhileproducingdifferentlogits. Anapproximate
+exponential is notautomatically acceptable because itis synthesizable. Choose tolerances before evaluating
+results.
+Deliverable: Anumericalspecification and operator/interfaceconformancesuite.
+Completion evidence: Two independent implementations agree within the specified contract, including
+edgecases.
+Project snapshot and implementation plan 6 / 27
+--- PDF page 7 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+4 Repair and qualify the current arithmetic and protocols
+Treattheseaspriorityengineeringtasks before addinglarger matrices.
+Current issue Requiredaction andtest
+Q16.16resolution Its LSB is 2−16 ≈1.526 ×10−5. Select a representation for the checkpoint’s 10−5
+RMSepsilonandqualifythe resulting error.
+Exponentialclipping Thecurrent function clips to [−8,8]. Measure probability-tailandSiLUerrors;
+replace itwitha bounded-errorimplementationfortheactual domain.
+Softmax range A Q16.16sumsaturatesnear32,768unitexponentials. Widen/rescale
+accumulators and prove supported context limits.
+Premature saturation Per-product/per-add saturation can destroy cancellation. Use justified accumulator
+widthandtestlong mixed-signreductions.
+Signedarithmetic Auditsigneddivision,negationofthe most-negative integer,castsand
+concatenations. Test positive/negativeoperandsagainst an independent oracle.
+Unpipelinedoperators Division,squarerootand dependentmultipliersneed implementationlatencies
+and timingconstraints;source-level operatorsaloneareinsufficient.
+Input lifetime Latchtoken/command inputswhen accepted ordefine andverifyastable-input
+contract. Thepresentembedding readsthetoken over multiple cycles.
+Context/modelchanges Report full-context andinvalid-token errors. Block incompatiblemodel writes or
+invalidateKVstate; define clear/start priority.
+Smallregression Add nonidentity RoPE, signed/randomtensors,intermediate checks and
+full-cache/reset/stallcases.
+Thecurrenttestexercisessomenonzeroarithmetic,butitmainlychecksargmax,positionandpositivity. It
+does notestablishfullnumeric correctness. Norepairs to RTLareperformed by producingthishandbook.
+Deliverable: Areviewedissuelist, arithmeticunits withadefinedcontract,andregression vectors.
+Completion evidence: All listed behaviors have passing tests; unsupported ranges produce defined
+errorsratherthansilent wrongresults.
+Project snapshot and implementation plan 7 / 27
+--- PDF page 8 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+5 Build the model importer and compiler
+Theimportertranslatesacheckpointintotheaccelerator’srepresentation. Thecompilermaps itsgraphonto
+availablecomputeandmemoryresources.
+□ Parsesupportedcontainersandconfigurationmetadata;validatetensorcount,names,shapes,datatypes
+andfile bounds before allocation orexecution.
+□ Handle tied/separate embedding and output weights, biases, norm constants, head grouping, tensor
+permutationsandRoPEconventions.
+□ Decode supported quantization formats. Q8_0 consists of an FP16 block scale and 32 signed INT8 values;
+other “8-bit”formatsarenotnecessarily interchangeable.
+□ Define whether to preserve Q8_0 or calibrate a new format. Expanding a previously quantized checkpoint
+does not recoverits originallost precision.
+□ Packweights,scalesandconstantsintoalignedbanks;generatebankaddressesandintegrityhasheswithout
+silentlydropping unsupportedtensors.
+□ Allocateactivation/residuallifetimes,scratchspace and KV storage.
+□ Tile and fusesupported operations; schedule memorytransfers,reductions andbarriers.
+□ Emit instructions/descriptors plus a manifest containing dimensions, operator requirements, numerical
+contract,compilerversionandmodel hash.
+□ Validate capacity and address calculations using widths large enough for the largest image; do not rely on
+signed32-bithost/RTLintermediatesfor huge tensors.
+□ Provide explicit diagnosticsfor unsupported operations, formatsor capacity.
+Offline software is compatible with hardware inference
+Python orC++ mayprepareconstants,including a qualified RoPElookuptable, andindependentlycompute
+expectedresults. Duringaninferencerun,alltransformertensorsmustcomefromthehardwaredatapath. The
+runtime mustnotquietly route unsupported transformeroperationsto theCPU.
+Deliverable: Importer, compiler,model-image format, loader compatibilityrulesand test corpus.
+Completion evidence: A real checkpoint imports reproducibly; its generated schedule executes without
+host tensor substitution.
+Project snapshot and implementation plan 8 / 27
+--- PDF page 9 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+6 Implement reusable matrix and vector engines
+Matrix engine
+□ ImplementGEMV for incrementaldecodeand GEMM for promptprocessing/batching.
+□ Selectlanecount,multiplierprecision,accumulatorwidth,pipelinedepthandreductiontopologyfrom
+bandwidth,area and performance budgets.
+□ Support programmabledimensions,strides,base addresses and matrix tiling.
+□ Handlepartialtiles,ragged dimensions,transposes and masked taillanes.
+□ Accept mutableactivation operands for attention, not only fixedweightoperands.
+□ Implementweightunpacking,blockscales, quantization/dequantization and output conversion.
+□ Provide bankedaccumulators, input/output buffers and overlap of transfer with computation.
+□ Exportcompletion,exceptions,utilization and stall counters.
+Vector and reduction engine
+□ Implementadd, multiply, bias,sum, maximum andsum-of-squares reductions.
+□ ImplementRMSNorm; add LayerNormonly if includedinthe declared model set.
+□ Implementreciprocal/reciprocal-square-root,exponential,SiLUand anyrequired GELU variant.
+□ Implementresiduals,quantization,clippingand model-specific logit transforms whererequired.
+□ Giveevery multicycle unitanexplicit request/responseprotocoland reset behavior.
+□ Sizeshared resourcesso normalizationandSoftmax donot stall a much largermatrix arrayindefinitely.
+An RTL function call can instantiate substantial combinational hardware at each call site. Serial control does
+notautomaticallymeanthatsynthesissharesasinglephysicalarithmeticunit. Inspectthemappedstructure
+and resourceuse.
+Deliverable: Parameterized compute engines with latency-aware interfaces and a mapped representative
+tile.
+selected target.
+Completion evidence: Operator accuracy,stallbehavior, resourceuseandtimingaremeasuredforthe
+Project snapshot and implementation plan 9 / 27
+--- PDF page 10 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+7 Complete the transformer graph and attention
+For theLlama-style path, theper-tokencomputation is:
+𝑛= RMSNorm(𝑥), 𝑄= 𝑊𝑄𝑛, 𝐾= 𝑊𝐾𝑛, 𝑉= 𝑊𝑉𝑛,
+𝑄= RoPE(𝑄), 𝐾= RoPE(𝐾),
+𝑃= softmax 𝑄𝐾𝑇
+cache
+√𝑑ℎ
++𝑀 , 𝑟 = 𝑥+𝑊𝑂(𝑃𝑉cache),
+𝑢= RMSNorm(𝑟), 𝑦= 𝑟+𝑊down SiLU(𝑊gate𝑢)⊙𝑊up𝑢 .
+The current token’s rotated K and V must be appended before its attention reads them. 𝑀 denotes the
+applicablemask;GQAmapsqueryheadsontotheirsharedKVheads. Normweightvectorsandepsilonare
+part of each normalization.
+□ Verify allQ/K/V/Odimensionsandheadpermutationsagainst checkpoint conventions.
+□ Support requiredposition indices,rotarydimensions, frequencies and scaling.
+□ Implementtheappropriate causal,padding andoptionalsliding-windowmasks.
+□ Compute QKscores, stable Softmaxandprobability-weightedVin the specifiedprecision.
+□ Implementprompt and decode execution modeswith consistent cache contents.
+□ Consider streaming/tiled Softmax to reduce attention intermediate storage; qualify its accumulation order
+andapproximationerror.
+□ Preserveresidualsuntilconsumedandscheduleall layerswithoutCPU math.
+□ Executeembedding lookup,final normalizationand vocabularyprojection.
+□ Support untied outputweightswhererequired; thepresent prototypeassumes tiedweights.
+The prefill score domain grows with prompt length; incremental decode reads an existing cache. Their
+data reuse and scheduling differ. NVIDIA’s documentation provides concrete examples of attention and
+cache-serving modes[2].
+Deliverable: Onefullreal-checkpointlayer,then thecomplete real decoder.
+Completion evidence: Compare intermediate tensors and final logits across multiple tokens and
+nontrivial positions.
+Project snapshot and implementation plan 10 / 27
+--- PDF page 11 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+8 Engineer weight memory, scratchpads and data movement
+□ Budget weight bytes, scales, padding, protection, activations, residuals, accumulators, instructions and KV
+separately.
+□ Chooseon-chipROM/SRAMcapacityandanyexternalmemorytechnologybasedonbothsustainable
+bandwidth and storagedemand.
+□ Define banks,ports,accesswidth, latency,burstlength and alignment.
+□ Obtain usable memory macro views: functional model, timing, physical abstract, layout, power and
+electricalinformation required by the flow.
+□ Implement a memory controller and its PHY for external DRAM, including initialization, train-
+ing/calibration, refreshanderror reportingasapplicable.
+□ ImplementDMA,queues,arbitration,response tracking andbackpressure.
+□ Double-buffertransfers where useful andbudgetallin-flight data.
+□ Provide scale/metadatabandwidth alongside weightbandwidth.
+□ Define read/write collisionbehavior andmapit to the selected macros.
+□ Add appropriate errordetection/correction,test, repair orredundancy.
+A realistic integration boundary
+ROM/SRAM/DRAM
+physical implementation
+Memory control
+queues and arbitration
+Banked buffers
+compute engines
+Thepresentasynchronous arrayreadsandbroad accesspatterns arenot a complete SRAM interface. A new
+latency-aware interface is required before claiming a memory macro can simply replace an array. A full
+Q16.16imagefor thecurrent1B model wouldconsume roughly4.94GB, before dynamic state.
+Deliverable: Memoryarchitecture,address map, controller/PHYintegrationand macrocontracts.
+Completion evidence: The complete workload runs with realistic latency, stalls and capacity limits; no
+idealzero-latencymemory assumptionremainshidden.
+Project snapshot and implementation plan 11 / 27
+--- PDF page 12 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+9 Size model storage, KV capacity and bandwidth
+For 𝑃storedparameters at 𝑞bitseach,bareweightstorage is
+𝑀𝑊 =
+𝑃𝑞
+8 bytes,
+beforescales,zeropoints,alignment,replication,repair anderrorprotection.
+Storedparameters 8-bit 4-bit
+1billion 1GB 0.5 GB
+8billion 8GB 4 GB
+70 billion 70GB 35 GB
+405billion 405GB 202.5 GB
+1trillion 1 TB 500GB
+Thesearedecimalunitsandhypotheticalprecisionchoices,notaclaimthatallcheckpointspreserveacceptable
+quality atfourbits.
+For conventionalMHA/GQAwith uniform dimensions and cache precision,
+𝑀KV = 2𝐵𝐿𝑇𝐻KV 𝐷ℎ𝑏.
+𝐵isconcurrentsequences, 𝐿layers,𝑇 cachedtokens, 𝐻KV KVheads, 𝐷ℎ headsizeand 𝑏bytespercached
+element. The factor two accounts for K and V. For the local model (𝐿= 16, 𝐻KV = 8, 𝐷ℎ = 64), an FP16
+cacherequires256MiBat8,192tokensor4GiBat131,072tokensperconversation. Thepresent32-bitcache
+representationdoublesthose amounts. MLA andrecurrent architectures need differentstorage equations.
+For dense batch-onedecodewith onefull external matrix-weightread per token,
+BW𝑊 ≳ 𝑀𝑊𝑅,
+where 𝑅istokens/s. A hypothetical70B, 4-bit, 100-token/s targetrequires atleast 3.5 TB/s for bare weights
+alone. Its dense projection work is roughly 2𝑃operations/token (multiply and add counted separately), or 14
+TOP/s in the implementednumberformat, excludingattentionand nonlinearities.
+Batchingcanamortizeweightreads;localweightschangewherebandwidthmustbeprovided. Neitherestimate
+is an achieved rate. Actual latency is bounded by compute, memory, communication and dependencies, with
+imperfect overlap.
+Deliverable: Acapacity/bandwidthworksheetfor everysupported workload.
+Completion evidence: Every claimed rate fits sustainable hardware budgets with explicit utilization and
+overheadassumptions.
+Project snapshot and implementation plan 12 / 27
+--- PDF page 13 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+10 Manage KV state, requests and long contexts
+□ Trackrequest ownership, modelidentity, sequencelength andtoken position.
+□ Define per-layer/headcache layouts and append/readordering.
+□ Check capacity beforeacceptance;report full-contexterrorsexplicitly.
+□ Allocate, releaseandreusestoragewithoutcross-request reads.
+□ Invalidateincompatiblecacheswhenthe model,adapter or relevantexecutionconfiguration changes.
+□ Define reset,cancel, abort, retryandcontext-restart behavior.
+□ Introducepaging orblockallocation ifrequired for longcontexts andconcurrency.
+□ Add eviction/sliding-windowbehavioronly whenconsistent with themodel and product promise.
+□ Qualify KVquantizationindependentlyof weight quantization.
+□ Define ownership/reference counting forsharedprefixes if supported.
+□ Budget cache readbandwidthascontextgrows,notjuststorage bytes.
+□ Enforceaccess isolationandanyrequirederasure policy.
+Production scheduling
+Continuous batching, chunked prompt processing and admission control can improve utilization, but add
+request IDs, synchronization and resource-management logic. Decide whether prompt and decode work share
+adevice or use separate resources;the latter alsorequiresKV transferand coordination.
+Current cache behavior: clear_cache resets the valid position; it does not overwrite every KV
+bit. Logical invalidation can support dense SRAM mapping, but it is not physical data erasure. The
+integration mustpreventstaleentries frombeingread or exposed.
+Deliverable: Cachemanager, allocation policyand request-lifecyclespecification.
+Completion evidence: Tests cover full capacity, reuse, model changes, cancellations, multiple users and
+long-contextnumericalbehavior withnostale or cross-request state.
+Project snapshot and implementation plan 13 / 27
+--- PDF page 14 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+11 Make execution programmable and observable
+Changing RTL parameters changes elaborated hardware. Runtime model portability requires a supported
+instruction set,descriptorsormicrocodeplusreloadable weights.
+Descriptorfield Requiredmeaning
+Opcode andversion Supportedoperationand compatible command format.
+Tensor references Source/destination bases,dimensions,strides and bounds.
+Numerics Formats,scale locations, accumulation and output rules.
+Dependencies Ordering,barriers,eventsand buffer lifetime.
+Request identity Model/contextownership and completion destination.
+Status Completion,errorreason, progress andperformancecounters.
+□ Latch accepted commands; useexplicit ready/valid orequivalenthandshakes.
+□ Check opcodes, formats, addresses anddimensions beforeissuing accesses.
+□ Define backpressure, queuedepth, outstanding operationsand completion ordering.
+□ Provide timeouts, watchdogs,cancellation andrecovery from invalid state.
+□ Define prioritiesfor simultaneous reset,cacheclear, configurationand start.
+□ Protectmodel loadingagainstinferenceusing partially written parameters.
+□ Expose model/firmwareIDs,cyclecounts,bytes moved,engine utilization andstallreasons.
+□ Add limited traceor diagnosticreadbacktolocate thefirst incorrect tensor.
+□ Provide outputbackpressureoradocumented bounded-buffer protocol.
+A hardware sequencer may be an FSM, microcoded controller, or management CPU issuing accelerator
+commands. The constraint is that the accelerator computes the transformer tensors; it does not prohibit
+softwarethat schedulesoperations.
+Deliverable: Command/registerspecification, sequencer,tracefacilitiesandconformancetests.
+Completionevidence: Legalprogramsexecutecorrectlyunderstalls;invalidrequestsfailpredictably
+without corrupting another request.
+Project snapshot and implementation plan 14 / 27
+--- PDF page 15 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+12 Support different families and very large models
+Modelfeature Additional support to plan
+GPT-stylevariants Attentionvariants LayerNorm,biases, GELU variants, learnedor alternative positions.
+MHA/MQA/GQA layout rules, masks,windows,positionscaling and separate
+output weights.
+Mixtureofexperts Router/top-k selection,token dispatch,expert addressing, imbalancehandling and
+weightedoutput combination.
+Latentattention Itsprojectiongraph and compressedcache representation.
+Encoder–decoder Encoder computation, cross-attention andencoder-state storage.
+Vision/audio Requiredfrontendoperators, preprocessing, encoderand cross-modalintegration.
+Recurrent/state-space Architecture-specificstate updates, scans, convolutionorother operators.
+Adapters Storage, low-rank projections,selection, model/cachecompatibilityand quality
+tests.
+The support matrix must specify subsets rather than promise all of these at once. DeepSeek-V3, for example,
+documents 671B total parameters, 37B active per token, MoE and MLA [3]. A dense Llama loop with larger
+parameters does not implement that graph. Active parameters reduce some work per token; total expert
+weights still requirea storagestrategy.
+Beyond a single chip
+□ Selecttensor,pipeline and/or expert parallelism; generatepartitionsinthe compiler.
+□ Budget linklatency/bandwidthandcollectives: reductions, gathers androutedexpert traffic.
+□ Implementphysicallinks,packetqueues,flowcontrol,synchronizationand integritychecks.
+□ Define topology,retry/failurebehaviorand deadlock prevention.
+□ Coordinate distributedmodelloading, requeststate, completion andrecovery.
+□ Budget package/board/rackpower, cooling andnetworkcapacity atthe systemlevel.
+Deliverable: Aboundedcompatibilitymatrixand, ifneeded, a multi-device execution design.
+Completionevidence: Asecondsupportedmodelrunsonunchangedhardware;apartitionedmodel
+matchesits single-system reference and survives communication stalls.
+Project snapshot and implementation plan 15 / 27
+--- PDF page 16 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+13 Build independent verification and release evidence
+Verification should expose incorrect arithmetic and incorrect dataflow, not merely demonstrate that the
+controllereventually assertsdone.
+□ Establishanindependent oracle withspecifiedarithmetic semantics andreal checkpointdata.
+□ Test signedextrema,zeros,tinyvalues,scale outliers, rounding ties and long reductions.
+□ Compare Q/K/V projections, norm statistics, RoPE outputs, attention scores, probabilities, FFN intermedi-
+ates and finallogits.
+□ Test nonidentityrotaryanglesandlong-context position behavior.
+□ Exercisenonmultipletiles, supported shapeboundaries and overflow inaddresscalculations.
+□ Injectmemorystalls,variablelatency,backpressureand interruptions.
+□ Test reset/cancelmid-operation,full-cachebehavior, modelupdates andrequestisolation.
+□ Add assertionsforvalid statetransitions, bounds,orderingand completion.
+□ Usecode/functionalcoverageandreviewuncoveredbehaviors;coveragepercentagealoneisnotcorrectness.
+□ Use formal propertiesforsuitableblocks/protocolsandequivalence checks across synthesis/ECO steps.
+□ Rungate-level and timing-awarechecksappropriate to the design andtool flow.
+□ Evaluatemodelqualityovermultipleprompts,tasksandcontextlengths;matchingoneanswerisinsufficient.
+Preserve a reproducible evidence bundle
+Store source revision, model hash, numerical contract, generator seed, tool and IP versions, configuration,
+expected/observedvalues, tolerances, logsandresultsummary. Makeregressionsrunautomaticallywhen
+RTL, compiler,firmwareormodelpackingchanges. Recordapprovedexceptions with owner andrationale.
+Deliverable: Operator, layer, model, protocoland implementationregressionsuites.
+Completion evidence: A release candidate meets declared quality limits and all required checks;
+numerical andhardwarefailuresidentify a reproducible first point of divergence.
+Project snapshot and implementation plan 16 / 27
+--- PDF page 17 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+14 Model performance and validate on a hardware prototype
+Measurepromptprocessing andgenerationseparately. A high peak MAC count can coexist withpoor token
+latencyif memory, reductionsorcommunicationstarveit.
+□ Build a cycle/data-movementmodel withactualmemoryports, transfersizes,queuedepth, dependencies
+andclockassumptions.
+□ Estimateareaandpowerfrom representative mappedblocksand memorymacros.
+□ Measure prefill latency, timetofirst token,decode latency andaggregatethroughput.
+□ Sweep promptlength,generated length,batchsizeand requestconcurrency.
+□ Record p95/p99 latency and admission/queuebehavior where relevant.
+□ Profilebank conflicts, stalls,arithmeticutilization andbytestransferred.
+□ Measure chip/card/systempower atclearlystated boundaries; calculateenergy per token.
+□ Comparemodelquality at thesamenumericalsettings usedfor speedmeasurements.
+□ Use an FPGA/emulationprototype withreal memory traffictovalidateintegration.
+□ Separateprototypeclock/resource limits from target ASIC projections.
+Minimum benchmark record
+Record Requiredcontext
+Model and software Checkpoint hash, compiler/runtime version,precision and quality result.
+Workload Prompt/outputlengths,context,samplingpolicy,concurrencyandwarm/coldstate.
+Hardware Devices,memory,clocks, cooling and measurementmethod.
+Performance First-token latency, inter-token latency,throughput, variabilityand repetitions.
+Energy/cost Powerboundary,energy pertoken, utilization andcost assumptions.
+MLPerf provides a reference for defined inference workloads and quality requirements [4]. Do not claim
+formalbenchmarkcompliancewithoutfollowing theapplicablerules.
+Deliverable: Ameasuredprototypereportand revised capacity/area/power budget.
+Completionevidence: Theclaimed workloadmeets itstargetswith no hiddenhost tensorcomputation
+orunreportedprecision/quality change.
+Project snapshot and implementation plan 17 / 27
+--- PDF page 18 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+15 Integrate the chip platform and obtain technology IP
+Digital platform
+□ Selecthost transport,registermap, DMA, commandqueues andinterrupts.
+□ Integrate boot/configurationcontrol andfirmwarestorage where needed.
+□ Designclock/reset distributionandverify clock-domain/reset-domain crossings.
+□ Add clockgating, powermanagement andvalid power-state transitions.
+□ Provide watchdogs,debugaccess,performance countersand error reporting.
+□ Add temperature/voltagemonitoring andcontrolled thermal throttling where required.
+□ Protecthost/DMAaddress ranges and isolaterequestsappropriate tothe deployment.
+□ Define model/firmware integrity,update androllbackrequirements.
+Foundry and licensed implementation inputs
+□ Selectfoundry, process,approveddesignkit, standard cellsand sign-off flow.
+□ Obtain SRAM/ROMmacroswiththerequiredsize, banking, portsand characterized corners.
+□ Obtain I/O,ESD,level-shifter/isolationandpower-domaincells as needed.
+□ Obtain clock-generationIP if thechipneeds an internal PLL/oscillator.
+□ Obtain memorycontroller/PHYandhigh-speedinterface IP for selected external interfaces.
+□ Confirm physical,timing, electrical,functional andtestviews are mutually compatible.
+□ Resolvelicense/manufacturingrights, support,integration constraintsand packagerequirements.
+Do not equate an open PDK installation with an agreed commercial production flow. The public SKY130
+documentation describes the status and limitations of its release [5]; confirm accepted tools, decks and
+qualification with the actual fabrication partner. A process node alone does not establish that the required
+memoryorinterface IPisavailable.
+Deliverable: System specification, IP inventory, technologyagreement andintegrationmodels.
+Completion evidence: All hard macros and interfaces have usable views, verified integration and a path
+acceptedbythefabrication partner.
+Project snapshot and implementation plan 18 / 27
+--- PDF page 19 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+16 Close physical design and prepare a tapeout package
+□ Establishfloorplan,hierarchy,macroplacement,pin/bump constraints and routing channels.
+□ Designthepowergridusingestimated current,package delivery and decouplingneeds.
+□ Writecompleteclock,I/O,uncertainty,loadandtiming-exceptionconstraints.
+□ Maplogic tothechosen libraries;insertappropriate test and powerstructures.
+□ Placecells, constructclock treesand complete detailedrouting.
+□ Extractparasiticsandclosesetup/holdtiming acrossrequired modes and corners.
+□ Check clockquality, unconstrainedpaths, signal integrity andcrosstalk as applicable.
+□ Analyze static/dynamic voltagedropandelectromigration with justified activityassumptions.
+□ CompleteDRC, LVS, electrical, antenna,density and manufacturing-rule checks.
+□ Add required fill,seal ring,die identification, pads/bumps andpackageconnectivity.
+□ Recheck equivalence andtimingafterengineeringchanges.
+□ ReleaseGDS/OASIS and requirednetlists,abstracts,constraints,reports and checksums.
+Define acceptable closure with the foundry
+The goal is no unapproved violations under the selected sign-off rules. Any waiver must be reviewed and
+accepted by the responsible design/fabrication authority; a script returning successfully is not an engineering
+waiver.
+Theolderone-rowSKY130experimentdoesnotpredictfull-decoderareabyasimplemultiplier. Memory
+topology, cell implementation, routing and clock distribution change with architecture. Nor does the new
+genericstructuraltarget establishthe absenceof combinational mapping problems.
+Deliverable: Areviewedtapeout package andsignedreleasechecklist.
+Completionevidence: Theexactreleaseddesignpassesrequiredchecks,usesacceptedIPviewsand
+matchesthepackage/manufacturing submission rules.
+Project snapshot and implementation plan 19 / 27
+--- PDF page 20 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+17 Design production test and silicon reliability
+□ Developa design-for-test plan before physical implementationis finalized.
+□ Insertscan/test accessandgenerate automated fault patterns asappropriate.
+□ Cover stuck-atand timing-relatedfaultswithmeasurabletargetsand justified exclusions.
+□ Add SRAM self-test, repair/redundancyandROM verification where supported.
+□ Plan boundaryscan, testclocks,resetcontrol and power modes.
+□ Createwafer-probe and packaged-part testflows, fixturesandprogram versions.
+□ Define pass/failbins, testlimits,testtimeand traceabilityrequirements.
+□ Characterizevoltage/frequency/temperature operating margins.
+□ Qualify ESD,latch-up,packageintegrity and lifetimebehavior for the targetmarket.
+□ Plan faultinjection,field errorreportingand recoverablefailurebehavior.
+□ Establishyield analysis,failure analysisand a feedback process for revisions.
+First-silicon bring-up order
+1. Verify rails, current draw,clock and reset using safeinitial conditions.
+2. Establishdebug/register accessandidentify chip/firmware versions.
+3. ExerciseSRAM,ROMandexternal-memoryinitialization/test.
+4. Check arithmetic units and smallknowntensor transfers.
+5. Runa known layer,thenafull model,against storedreference outputs.
+6. Sweep workloads,clocks,voltage/temperatureconditionsand interfaces withinapproved limits.
+Manufacturing yield and reliability are separate from neural-network numerical quality. A design must satisfy
+both, with atest policy thatcan distinguishsilicondefects from software ormodel-image failures.
+Deliverable: DFTarchitecture,testpatterns/programs, characterization andqualificationplan.
+Completion evidence: Working parts can be identified repeatably, faulty parts rejected and field failures
+traced to areproducible configuration.
+Project snapshot and implementation plan 20 / 27
+--- PDF page 21 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+18 Build the package, board, cooling and service software
+Physical product
+□ Selectpackagetechnology,substrate,pin/bumpassignmentand escaperouting.
+□ Co-design power/grounddelivery,signalroutingand thermalpaths.
+□ CreatePCBschematics,stack-up,impedanceconstraints and layout.
+□ Specify regulators,railsequencing, protection,decouplingand clocksources.
+□ Route externalmemoryandhostinterfaces withsignal/power integritychecks.
+□ Provide debug/programmingconnectors, sensors, testpoints andassembly fixtures.
+□ Designheatsink, airflow, thermalinterface, mountingand enclosure.
+□ ReleaseBOM,fabrication/assemblydataand boardproduction tests.
+Software a customer can use
+□ Deliver firmware,driver,modelloader andadocumented runtimeAPI.
+□ Validatemodel/firmware/compilercompatibilityand failure reporting.
+□ Provide tokenization,templatesand generationcontrolspromised by the product.
+□ Decide logitsversus tokenoutput; argmax supplies greedy decoding only.
+□ Implementtemperature, top-k/top-p, penaltiesand RNGifsupported;identify whethersampling runson
+host oraccelerator.
+□ Support requestadmission,scheduling, cancellation andmemory accounting.
+□ Deliver installationpackages,examples,diagnostics, monitoringand profiling.
+□ Establishsigned/versionedreleases asappropriate,update/rollbackprocedures and support policy.
+Thehostmaytokenizeandserverequestswhile the accelerator owns the completetransformerforwardpass.
+Makethatboundaryobservableintestsandproductdocumentationsouserscandistinguishhardwareexecution
+from referencesoftware.
+Deliverable: Packageddevice, reference boardand installablesoftware release.
+Completion evidence: A new user can install the system, load a supported model, run inference and
+diagnosedocumentederrors without developer-onlyintervention.
+Project snapshot and implementation plan 21 / 27
+--- PDF page 22 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+19 Resolve commercial, licensing and compliance work
+□ Review checkpointredistribution/commercialterms, notices,branding and permitteduses.
+□ Review third-partysoftware,RTL,EDA andhard-IP licenses, including manufacturing rights.
+□ Review implementationIP/patent exposure with appropriate specialists.
+□ Determine product/export classification,destinations andend-user requirements.
+□ Identify applicableEMC, safetyand environmentalobligations forthe final product and markets.
+□ Define privacy/data-handlingobligations foranyhostedservice.
+□ Establishwarranty,returns,support,service-level and liability terms.
+□ Securefoundry,assembly/test, memory,boardand cooling suppliers withrealisticlead times.
+□ Plan qualification,productionramps,lottraceability, inventory andrevision management.
+Embeddingweightsinsilicondoesnotremovetheirlicenseconditions. Meta’sLlama3.2licenseincludes
+obligationsforredistribution/productscontainingthematerials[6]. EUmanufacturersmustidentifyapplicable
+legislationandperformtherelevantconformityprocess[7]. Advancedcomputingexportrequirementsdepend
+on specifications,jurisdictionanddestination; reviewcurrent rules for theselected product [8].
+Fund a shipped product, including revisions
+Obtain quotationsfor engineering, EDA/compute, memory/interfaceIP,masks, prototype runs, wafers, yield,
+packaging, test, boards, memory, cooling, qualification and support. Include rework/respin contingency.
+Distinguishprototypeshuttlecost fromproduction economics.
+𝐶shipped ≈𝐶good die +𝐶package/test +𝐶board/memory/cooling
+𝐶development
++𝐶assembly/support +
+.
+𝑁shipped
+Assignownersforarchitecture,numerics,RTL,verification,physicaldesign,DFT,compiler/runtime,board
+design and manufacturing. These roles may be partners or staff; no universal team size or fabrication price is
+assumedhere.
+Deliverable: Commercial plan,supplier/IP agreements and compliance responsibilitymatrix.
+Completion evidence: The product has a viable cost model and a documented route to legal, repeatable
+manufactureandsale initsselected markets.
+Project snapshot and implementation plan 22 / 27
+--- PDF page 23 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+20 Execute the project in evidence-based stages
+Gate Work package Exitevidence
+G0 Freezescopeandbaseline Product limits, model/formatchoices, source snapshot andclaim
+register.
+G1 Arithmetic/protocol re-
+pair
+Independent signedarithmetic, nonlinear,boundsandhandshake
+regressions.
+G2 Realcheckpoint layer Hardware computesnorm,QKV,RoPE,cache, attention andFFN
+withvalidated intermediate tensors.
+G3 Full realmodel All layersand finallogitsexecute throughhardware across
+representativepromptsand contexts.
+G4 Runtimeportability Asecond supportedcheckpoint/configurationruns onunchanged
+hardware using the importer and schedule.
+G5 Realistic memory Same execution succeeds withmemory latency,bandwidth, stalls,
+capacityand error behavior represented.
+G6 Performance prototype Measured quality, throughput, latencyandpower/resourceevidence
+againstproduct targets.
+G7 Multi-device scale, if
+needed
+Correct partitioned execution, communicationbudget andrecovery
+behavior.
+G8 Tapeout readiness Technology/IP, DFT,mapped design,physicalclosureandaccepted
+sign-offpackage.
+G9 Firstsilicon Packagedparts passbring-up, interfaces,memory,tensorand model
+tests.
+G10 Productrelease Qualification,manufacturingtest, usablesoftware,supportand
+commercial obligations complete.
+Start with these concrete actions
+1. Record the current sources and existing test scope; stop treating the tiny argmax smoke test as evidence of
+real-model correctness.
+2. Chooseafirstsupportedcheckpoint,context limitandnumerical contract. Writefocusedregressions for
+the arithmetic/protocol risks inSection4.
+3. Definealatency-aware model-memory interface andacheckpoint packer that matchesit.
+4. Validate onereallayer tensorbytensor, thenall layers, then a second model.
+5. Obtain representative memory/IP data early and use it to constrain architecture before committing to
+expensive physicalimplementation.
+These are dependency gates, not calendar estimates. IP availability, numerical results and prototype
+measurementscanrequirearchitectural revisions.
+Project snapshot and implementation plan 23 / 27
+--- PDF page 24 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+21 Maintain a release checklist and risk register
+□ Supported-model/operatormatrix is published and versioned.
+□ Trained weightsandexecutableimageare hashed and traceable.
+□ Quantizationand numerical qualitymeet predeclared thresholds.
+□ NoCPU tensorresultcontributestotheadvertisedhardware forwardpass.
+□ Real-memorylatency/bandwidthanderrorbehavior arerepresented in verification.
+□ Context,shape,address andconcurrencylimitsareenforced.
+□ Asecondmodeldemonstrates portability if portability isadvertised.
+□ Required timing, equivalence, physical and electrical checkspass.
+□ Manufacturingtestandqualificationmeetagreedtargets.
+□ Package, board,firmware,driverandmodel loaderversionsarecompatible.
+□ Performanceclaimsincludeworkload, quality andmeasurement boundaries.
+□ Suppliers, licenses, compliance owners and support proceduresareassigned.
+Track risks as decisions, not vague concerns
+Risk Earlyevidence Possible response
+Numericalquality Layer/logit errorandtaskevaluation Revise formats, accumulators or
+approximations.
+Memory feasibility Capacity/ports/area/bandwidth from
+actualmacros
+Changebanking,capacity,
+external-memory or partition plan.
+Timing/congestion Representative mapped/routedblocks Pipeline, simplify interfaces, repartition or
+revise clocktarget.
+Poorutilization Countersandtrafficmodel Revise dataflow, buffering, batch policy or
+lane count.
+Model obsoles-
+cence
+Updatepolicyandcustomerworkload Favorreloadableweightsorlimit
+fixed-model commitments.
+Yield/cost Supplierquotes,testplansanddie/package
+estimates
+Revise die size, redundancy, packaging,
+volumeor product target.
+Giveeachentryanowner,evidencelink,nextexperiment,decisiondeadlineandimpactonscope. Aprototype
+result should updatethe planratherthan become anunsupported product claim.
+Project snapshot and implementation plan 24 / 27
+--- PDF page 25 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+22 Repository map and commands
+Paths below are relative to /Users/computer/dev/verilog. They identify the current prototype, not a
+promise that everyproposed subsystemalready exists.
+Path Purpose
+rtl/llama_decode_core.sv Serial Q16.16 Llama-styledecoderprototype.
+tb/tb_llama_decode_core.sv Tinytwo-layer/two-tokensyntheticsmoke test.
+asic/llama.mk Decoder generic-loweringand olderfrozen-tile targets.
+asic/llama_frozen_tile_top.sv Selectedfixed-weight Q8projectiontile.
+rtl/q8_0_dot_pipeline.sv Pipelinedsigned block-dotarithmeticforthefrozentile.
+tools/freeze_llama.py Frozen image/selected-tilepreparation.
+tools/llama_frozen_reference.py CPU referenceand selected-tilehybridexecution.
+asic/LLAMA_RTL_CORE.md Prototypegraph andnumerical notes.
+asic/LLAMA_FROZEN.md Older frozentile, co-simulationand physical experiment.
+Existing local checks
+cd /Users/computer/dev/verilog
+make -C asic llama-core-sim
+make -C asic llama-core-synth
+The first command runs the synthetic test. The second performs generic lowering with memories preserved; it
+is not full standard-cell mapping or timing closure. Previously recorded smoke output was 328 and 356 cycles
+forthetwotokens. Thosenumbersdo notdescribe Llama 1B inferencespeed.
+Rebuild this PDF
+cd /Users/computer/dev/verilog/output/pdf
+latexmk -pdf -interaction=nonstopmode -halt-on-error \
+inference_chip_product_roadmap.tex
+Use a TeX installation containing the packages declared in the source. This document is standalone and does
+not readthemodelweightstocompile. The LaTeXsource remainseditablealongside the PDF.
+Project snapshot and implementation plan 25 / 27
+--- PDF page 26 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+23 Glossary
+Term Meaninginthis project
+ASIC Integratedcircuitdesigned for aparticularworkloador family ofworkloads.
+RTL Clockedlogicdescription usedtomodel and synthesizedigital hardware.
+GEMV /GEMM Matrix–vector/matrix–matrix multiplication.
+MAC Multiply–accumulate operationorthe circuitperforming it.
+Prefill/ decode Process prompttokens / generatesubsequent tokens incrementally.
+KV cache Mutable keys andvaluesretained frompreviousattention positions.
+GQA /MQA Severalqueryheadsshare groupsofKV heads/one KVhead.
+MoE /MLA Mixture ofexperts/multi-headlatent attention.
+Quantization Representvalues usingfewer bitswithdefined scalesorexponents.
+Q16.16 Signed32-bitfixedpointwith 16fractionalbits in thisprototype.
+SRAM/ ROM Writable static memory / read-only memory; physical macros differ from RTL arrays.
+DMA/ PHY Autonomousmemory transfer engine / physical electrical interface.
+PDK Process designkit: technologymodels, rulesand implementation data.
+STA / PVT Statictiminganalysis/process,voltageand temperature conditions.
+DRC / LVS Design-rulegeometry checks / layout-versus-schematicconnectivitycomparison.
+IR drop/ EM Supply-voltageloss / electromigration from currentstress.
+CDC / RDC Clock-domaincrossing / reset-domaincrossing.
+DFT/ ATPG Designfortest/automatic test-patterngeneration.
+MBIST/ ECC Memorybuilt-inself-test / error-correctingcode.
+MPW /OSAT Sharedmulti-projectwafer/outsourcedsemiconductorassembly and test.
+NRE /ECO Non-recurringengineering cost/ engineering change order.
+GDSII/OASIS Layoutexchangeformatsused in the manufacturinghandoff.
+TTFT /p99 Timetofirsttoken/latency belowwhich 99% of observed requests fall.
+Project snapshot and implementation plan 26 / 27
+--- PDF page 27 ---
+INFERENCE CHIP / ENGINEERING ROADMAP 21 SEPTEMBER 2026
+References
+[1] Taalas, The path to ubiquitous AI. Vendor description of model specialization and storage/compute
+integration;notanopencircuitspecification.https://taalas.com/the-path-to-ubiquitous-ai/
+[2] NVIDIA, TensorRT-LLM: Multi-Head, Multi-Query, and Group-Query Attention. Examples of attention,
+KV-cache and serving techniques; not the RTL specification for this project. https://nvidia.github.
+io/TensorRT-LLM/features/attention.html
+[3] DeepSeekAI,DeepSeek-V3officialrepository.Architectureexampledocumentingtotal/activeparameters,
+MoEandMLA.https://github.com/deepseek-ai/DeepSeek-V3
+[4] MLCommons,MLPerfInference: Datacenter.Benchmarkmethodologyandworkload/qualitycontext.
+https://mlcommons.org/benchmarks/inference-datacenter/
+[5] SkyWater,SKY130PDKdocumentation.Technologydocumentationandreleasestatus;confirmproduction
+requirementswiththeselectedfabricationpartner.https://skywater-pdk.readthedocs.io/en/m
+ain/
+[6] Meta, Llama 3.2 Community License Agreement. Review the applicable checkpoint version and intended
+distribution.https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/
+LICENSE
+[7] EuropeanCommission,CEmarking: Manufacturers.Determineapplicablelegislationforthefinished
+product and target market. https://single-market-economy.ec.europa.eu/single-market/
+goods/ce-marking/manufacturers_en
+[8] U.S.BureauofIndustryandSecurity,ExportAdministrationRegulations: TableofContents.Requirements
+must be assessed using current rules, product specifications, jurisdiction and destination. https:
+//www.bis.gov/regulations/ear/table-of-contents
+Source boundary. Repository observations are based on the local files listed in Section 22; their current
+contents may change after this snapshot. Numerical sizing examples are calculations under their stated
+assumptions. External sources were reviewed for this roadmap on 20–21 September 2026. No vendor
+performanceclaim is usedasa predictedperformancefigurefor this design.
+Project snapshot and implementation plan 27 / 27

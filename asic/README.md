@@ -4,6 +4,10 @@ This directory turns the synthesizable `tiny_transformer` demonstration into
 a pad-agnostic ASIC macro. It is a physical-design starting point, not a
 fabrication order and not the exact GPT-2 golden model.
 
+For the real Llama 3.2 1B fixed-weight ROM and hardware co-simulation work, see
+[LLAMA_FROZEN.md](LLAMA_FROZEN.md). Its `llama-*` targets are separate from the
+tiny-transformer SKY130 flow and its metrics below.
+
 ## Frozen proof-chip configuration
 
 - vocabulary: 4
@@ -110,6 +114,7 @@ cd asic
 make sim-int4
 make synth-int4
 make gds-int4
+make render-int4
 ```
 
 The generic default-size INT4 model uses 52,992 parameter bits, versus 341,504
@@ -117,3 +122,24 @@ bits for the FP32 version (about 6.4 times smaller). Values are currently
 requantized with signed saturation and an implicit unit scale. Deploying real
 trained weights requires calibration or quantization-aware training to supply
 per-layer scales and correctly quantized INT32 biases.
+
+The completed `int4_baseline` SKY130 run produced a 1 mm by 1 mm GDS with
+33,800 functional standard cells occupying 0.235 mm². Detailed routing, Magic
+DRC, KLayout DRC and LVS all completed with zero errors. Nominal 50 MHz timing
+passes with no hold violations; the slow 1.60 V/100 °C corner has three setup
+paths and worst slack of -1.641 ns, so the current layout is approximately a
+46 MHz all-corner design. Post-route vectorless power is estimated at 11.6 mW.
+One antenna violation remains and must be repaired before tapeout. The final
+views are under `sky130/runs/int4_baseline/final/`.
+
+The default KLayout PNG can look like a solid magenta block, so `make
+render-int4` also creates readable debug views from the final DEF:
+
+- `sky130/runs/int4_baseline/final/render/tiny_transformer_int4_asic_top.overview.svg`
+- `sky130/runs/int4_baseline/final/render/tiny_transformer_int4_asic_top.core.svg`
+- `sky130/runs/int4_baseline/final/render/tiny_transformer_int4_asic_top.routes_zoom.svg`
+- PNG previews in `sky130/runs/int4_baseline/final/render/quicklook/`
+
+These SVGs show logic density, filler/physical-cell density, sampled signal
+routes, power-grid stripes, pins and antenna cells. They are meant for visual
+debugging, not as a replacement for mask-accurate GDS inspection.

@@ -1,0 +1,30 @@
+{
+  "DESIGN_NAME": "llama_frozen_tile_top",
+  "VERILOG_FILES": [
+    "dir::../build/llama_gds_frozen/llama_tile_rom.sv",
+    "dir::../llama_frozen_tile_top.sv",
+    "dir::../../rtl/q8_0_dot_pipeline.sv",
+    "dir::../../rtl/int32_to_fp32.sv",
+    "dir::../../rtl/fp16_to_fp32.sv",
+    "dir::../../rtl/fp32_mul.sv",
+    "dir::../../rtl/fp32_add.sv"
+  ],
+  "VERILOG_INCLUDE_DIRS": [
+    "dir::../build/llama_gds_frozen"
+  ],
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 100.0,
+  "PNR_SDC_FILE": "dir::constraints_llama_tile.sdc",
+  "SIGNOFF_SDC_FILE": "dir::constraints_llama_tile.sdc",
+  "PDN_MULTILAYER": true,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": "0 0 1500 1500",
+  "CORE_AREA": "20 20 1480 1480",
+  "FP_CORE_UTIL": 25,
+  "PL_TARGET_DENSITY_PCT": 30,
+  "PL_ROUTABILITY_DRIVEN": false,
+  "SYNTH_STRATEGY": "AREA 0",
+  "SYNTH_SHARE_RESOURCES": false,
+  "DRT_THREADS": 4,
+  "DRT_OPT_ITERS": 16
+}

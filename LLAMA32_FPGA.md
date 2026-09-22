@@ -1,5 +1,9 @@
 # Llama 3.2 1B FPGA target
 
+The fixed-model ASIC proof now has a separate [ROM and co-simulation flow](asic/LLAMA_FROZEN.md).
+It runs the full model in a CPU reference and uses a synthesized, fixed-weight
+matrix tile in RTL co-simulation; it is not a complete standalone decoder.
+
 The copied model is the Ollama `llama3.2:1b` Q8_0 GGUF. Its SHA-256 is
 `74701a8c35f6c8d9a4b91f3f3497643001d63e0c7a84e085bed452548fa88d45`.
 

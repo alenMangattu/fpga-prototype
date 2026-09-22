@@ -13,7 +13,7 @@ INT4_RTL = ../rtl/int4_linear.sv \
 
 SKY130_LIB ?= $(firstword $(wildcard $(HOME)/.ciel/ciel/sky130/versions/*/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib))
 
-.PHONY: sim synth map-sky130 gds sim-int4 synth-int4 gds-int4 clean
+.PHONY: sim synth map-sky130 gds sim-int4 synth-int4 gds-int4 render-int4 clean
 
 sim:
 	mkdir -p build
@@ -41,6 +41,10 @@ gds:
 
 sim-int4:
 	mkdir -p build
+	iverilog -g2012 -Wall -s tb_tiny_transformer_int4 \
+		-o build/int4_transformer_test $(INT4_RTL) \
+		../tb/tb_tiny_transformer_int4.sv
+	vvp build/int4_transformer_test
 	iverilog -g2012 -Wall -s tb_tiny_transformer_int4_asic_top \
 		-o build/int4_asic_rtl_test $(INT4_RTL) \
 		../tb/tb_tiny_transformer_int4_asic_top.sv
@@ -54,5 +58,17 @@ synth-int4:
 gds-int4:
 	python3 -m librelane --dockerized sky130/config_int4.json
 
+render-int4:
+	python3 scripts/render_def_svg.py \
+		sky130/runs/int4_baseline/final/def/tiny_transformer_int4_asic_top.def \
+		--out-dir sky130/runs/int4_baseline/final/render
+	mkdir -p sky130/runs/int4_baseline/final/render/quicklook
+	qlmanage -t -s 1800 -o sky130/runs/int4_baseline/final/render/quicklook \
+		sky130/runs/int4_baseline/final/render/tiny_transformer_int4_asic_top.overview.svg \
+		sky130/runs/int4_baseline/final/render/tiny_transformer_int4_asic_top.core.svg \
+		sky130/runs/int4_baseline/final/render/tiny_transformer_int4_asic_top.routes_zoom.svg
+
 clean:
 	rm -rf build sky130/runs
+
+include llama.mk
